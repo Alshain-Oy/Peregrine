@@ -13,16 +13,18 @@ OP_ERROR   = 0xff
 OP_HALT = 0x11
 OP_SET_POS   = 0x30
 OP_HIRES = 0x31
+OP_IO = 0x32
 
-# Opcodes for I2C extension
-OP_I2C_TEMP  = 0x13
-OP_I2C_IO_W  = 0x14
-OP_I2C_IO_R  = 0x15
+
+# Opcodes for I2C extension (NOT IN USE)
+#OP_I2C_TEMP  = 0x13
+#OP_I2C_IO_W  = 0x14
+#OP_I2C_IO_R  = 0x15
 #OP_I2C_ADC   = 0x16
 #OP_I2C_DAC   = 0x17
 #OP_I2C_PWM   = 0x18
-OP_I2C_MEM_W = 0x19
-OP_I2C_MEM_R = 0x20
+#OP_I2C_MEM_W = 0x19
+#OP_I2C_MEM_R = 0x20
 
 # Params for functionality of the controller
 PARAM_ENCODER_VALUE = 0
@@ -49,6 +51,10 @@ PARAM_LQR_K1 = 20
 PARAM_LQR_B1 = 21
 PARAM_ENCODER_DIV = 22
 
+PARAM_GEARING_P = 30
+PARAM_GEARING_Q = 31
+
+
 
 # Params for housekeeping etc
 PARAM_FDIR_STEPRATE = 23
@@ -61,6 +67,7 @@ PARAM_UPTIME = 61
 # Values for operating mode
 MODE_OPENLOOP = 1
 MODE_CLOSEDLOOP = 2
+MODE_GEARING = 3
 
 # Values for path planning 
 PLANNING_NONE = 1
@@ -73,8 +80,8 @@ ENCODER_ABSOLUTE_MULTITURN = 3
 
 # Values for driver config
 DRIVER_8_STEP  = 0
-DRIVER_2_STEP  = 1
-DRIVER_4_STEP  = 2
+DRIVER_32_STEP  = 1
+DRIVER_64_STEP  = 2
 DRIVER_16_STEP = 3
 
 # Values for limit switch config
@@ -82,7 +89,7 @@ LIMIT_SWITCH_ENABLED = 1
 LIMIT_SWITCH_DISABLED = 2
 LIMIT_SWITCH_INVERTED = 3
 
-# Values for control mode
+# Values for control mode (NOW ALWAYS LQR)
 MODE_PID = 1
 MODE_LQR = 2
 
@@ -167,14 +174,14 @@ class Controller( object ):
 	def status( self ):
 		self.com.write( gen_status_msg( self.address ) )
 		response = self.com.read( 10 )
-		
+		#print(repr(response))
 		return decode_status( response ) 
 	
-	def move( self, pos, speed, accel ):
+	def move( self, pos, speed = 1000, accel = 100 ):
 		self.com.write( gen_move_msg( self.address, int(pos), int(speed/32), int(accel)  ) )
 		response = self.com.read( 10 )
 	
-	def move_with_status( self, pos, speed, accel ):
+	def move_with_status( self, pos, speed = 1000, accel = 100 ):
 		self.com.write( gen_move_msg( self.address, int(pos), int(speed/32), int(accel)  ) )
 		response = self.com.read( 10 )
 		return decode_status( response ) 
@@ -189,6 +196,7 @@ class Controller( object ):
 	def read( self, key ):
 		self.com.write( gen_read_msg( self.address, int( key ) ) )
 		response = self.com.read( 10 )
+		#print(repr(response))
 		addr, op = decode_header( response )
 		if op == OP_ERROR:
 			raise IndexError
@@ -210,58 +218,12 @@ class Controller( object ):
 		return value 
 	
 	
-	def i2c_read_temperature( self, addr ):
-		self.com.write( gen_action_msg( self.address, OP_I2C_TEMP, addr, 0 ) )
-		response = self.com.read( 10 )
-		key, value = decode_action( response )
-		t = (value >>5) * 0.125
-		return t 
-	
-	def i2c_read_ioexpander( self, addr ):
-		self.com.write( gen_action_msg( self.address, OP_I2C_IO_R, addr, 0 ) )
+	def set_io( self, value ):
+		if value:
+			self.com.write( gen_action_msg( self.address, OP_IO, 1, 1 ) )
+		else:
+			self.com.write( gen_action_msg( self.address, OP_IO, 0, 0 ) )
+
 		response = self.com.read( 10 )
 		key, value = decode_action( response )
 		return value 
-	
-	def i2c_write_ioexpander( self, addr, value ):
-		self.com.write( gen_action_msg( self.address, OP_I2C_IO_W, addr, value ) )
-		response = self.com.read( 10 )
-		key, value = decode_action( response )
-		return value 
-	
-#	def i2c_read_adc( self, addr, channel ):
-#		self.com.write( gen_action_msg( self.address, OP_I2C_ADC, addr, channel ) )
-#		response = self.com.read( 10 )
-#		key, value = decode_action( response )
-#		return value 
-	
-#	def i2c_write_dac( self, addr, channel, value ):
-#		self.com.write( gen_action_msg( self.address, OP_I2C_DAC, (addr << 8) | channel, value ) )
-#		response = self.com.read( 10 )
-#		key, value = decode_action( response )
-#		return value 
-	
-#	def i2c_write_pwm( self, addr, channel, value ):
-#		self.com.write( gen_action_msg( self.address, OP_I2C_PWM, (addr << 8) | channel, value ) )
-#		response = self.com.read( 10 )
-#		key, value = decode_action( response )
-#		return value 
-	
-	def mem_write( self, addr, value ):
-		self.com.write( gen_action_msg_mem( self.address, OP_I2C_MEM_W, addr, value ) )
-		response = self.com.read( 10 )
-		key, value = decode_action( response )
-		return value 
-	
-	def mem_read( self, addr ):
-		self.com.write( gen_action_msg( self.address, OP_I2C_MEM_R, addr, 0 ) )
-		response = self.com.read( 10 )
-		key, value = decode_action_mem( response )
-		return value 
-	
-	def set_hires( self ):
-		self.com.write( gen_action_msg( self.address, OP_HIRES, 0, 0 ) )
-		response = self.com.read( 10 )
-		key, value = decode_action( response )
-		return value 
-	
